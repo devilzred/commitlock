@@ -6,7 +6,6 @@ import 'package:commitlock/providers/auth_provider.dart';
 import 'package:commitlock/providers/session_provider.dart';
 import 'package:commitlock/providers/streak_provider.dart';
 import 'package:commitlock/screens/session/new_commitment_screen.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -45,7 +44,6 @@ void initState() {
     return Scaffold(
       appBar: AppBar(title: const Text('Dashboard'),
         actions: [
-    if (kDebugMode)
       PopupMenuButton<String>(
         onSelected: (val) async {
           final auth = context.read<AuthProvider>();
@@ -67,7 +65,8 @@ void initState() {
         ],
         icon: const Icon(Icons.bug_report_outlined),
       ),
-      ],),
+      ],
+    ),
       body: Consumer<SessionProvider>(
         builder: (context, data, child) {
           final activeSessions = data.activeSessions;
@@ -79,14 +78,15 @@ void initState() {
                 mainAxisAlignment: MainAxisAlignment.start,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  Text('Fueled by caffeine ☕ • ✨ crafted by Karthik', style: Textfont.subText , textAlign: TextAlign.center,),
                   const SizedBox(height: 20),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
                       Container(
                         padding: const EdgeInsets.all(5),
-                        width: 170,
-                        height: 110,
+                        width: 160,
+                        height: 100,
                         decoration: BoxDecoration(
                           color: AppColors.accentColor,
                           // border: Border.all(color: AppColors.secondaryColor, width: 2),
@@ -111,6 +111,7 @@ void initState() {
                           ],
                         ),
                       ),
+                      const SizedBox(width: 5),
                       Column(
                         mainAxisAlignment: MainAxisAlignment.start,
                         crossAxisAlignment: CrossAxisAlignment.start,
