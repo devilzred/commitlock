@@ -17,22 +17,27 @@ class Dashboard extends StatefulWidget {
 }
 
 class _DashboardState extends State<Dashboard> {
-
-@override
+  @override
 void initState() {
   super.initState();
-  // Delay the loadSessions call until the build phase is complete
   WidgetsBinding.instance.addPostFrameCallback((_) {
-    final provider = Provider.of<SessionProvider>(context, listen: false);
     final auth = Provider.of<AuthProvider>(context, listen: false);
-    provider.loadSessions(auth.currentUser!.id);
+    final session = Provider.of<SessionProvider>(context, listen: false);
+    final streak = Provider.of<StreakProvider>(context, listen: false);
+
+    session.loadSessions(auth.currentUser!.id);
+    streak.loadStreak(auth.currentUser!.id, session);
+
+    // Keep streak in sync when sessions change
+    // session.setOnSessionChanged(() {
+    //   streak.onSessionChanged(session);
+    // });
   });
 }
 
   @override
   void dispose() {
     super.dispose();
-
   }
 
   @override
@@ -42,31 +47,32 @@ void initState() {
     final streakData = context.watch<StreakProvider>();
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Dashboard'),
+      appBar: AppBar(
+        title: const Text('Dashboard'),
         actions: [
-      PopupMenuButton<String>(
-        onSelected: (val) async {
-          final auth = context.read<AuthProvider>();
-          final session = context.read<SessionProvider>();
-          final streak = context.read<StreakProvider>();
+          PopupMenuButton<String>(
+            onSelected: (val) async {
+              final auth = context.read<AuthProvider>();
+              final session = context.read<SessionProvider>();
+              final streak = context.read<StreakProvider>();
 
-          if (val == 'seed') {
-            await FakeDataSeeder.seed();
-          } else {
-            await FakeDataSeeder.clear();
-          }
+              if (val == 'seed') {
+                await FakeDataSeeder.seed();
+              } else {
+                await FakeDataSeeder.clear();
+              }
 
-          session.loadSessions(auth.currentUser!.id);
-          streak.loadStreak(auth.currentUser!.id);
-        },
-        itemBuilder: (_) => [
-          const PopupMenuItem(value: 'seed', child: Text('Seed fake data')),
-          const PopupMenuItem(value: 'clear', child: Text('Clear data')),
+              session.loadSessions(auth.currentUser!.id);
+              streak.loadStreak(auth.currentUser!.id, session);
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'seed', child: Text('Seed fake data')),
+              const PopupMenuItem(value: 'clear', child: Text('Clear data')),
+            ],
+            icon: const Icon(Icons.bug_report_outlined),
+          ),
         ],
-        icon: const Icon(Icons.bug_report_outlined),
       ),
-      ],
-    ),
       body: Consumer<SessionProvider>(
         builder: (context, data, child) {
           final activeSessions = data.activeSessions;
@@ -78,7 +84,11 @@ void initState() {
                 mainAxisAlignment: MainAxisAlignment.start,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text('Fueled by caffeine ☕ • ✨ crafted by Karthik', style: Textfont.subText , textAlign: TextAlign.center,),
+                  Text(
+                    'Fueled by caffeine ☕ • ✨ crafted by Karthik',
+                    style: Textfont.subText,
+                    textAlign: TextAlign.center,
+                  ),
                   const SizedBox(height: 20),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -95,7 +105,9 @@ void initState() {
                         child: Row(
                           children: [
                             const SizedBox(width: 8),
-                            streakData.streakCount > 2 ? Text( '🔥', style: Textfont.large) : Text( '💔', style: Textfont.large),
+                            streakData.streakCount > 2
+                                ? Text('🔥', style: Textfont.large)
+                                : Text('💔', style: Textfont.large),
                             const SizedBox(width: 8),
                             Column(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -150,7 +162,14 @@ void initState() {
                   const SizedBox(height: 20),
 
                   activeSessions.isEmpty
-                      ? Center(child:  Text('No active session ☹️', style: Textfont.heading.copyWith(color: AppColors.subTextColor)))
+                      ? Center(
+                          child: Text(
+                            'No active session ☹️',
+                            style: Textfont.heading.copyWith(
+                              color: AppColors.subTextColor,
+                            ),
+                          ),
+                        )
                       : ListView.builder(
                           shrinkWrap: true,
                           physics: const NeverScrollableScrollPhysics(),

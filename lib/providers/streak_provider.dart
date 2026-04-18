@@ -1,5 +1,6 @@
 import 'package:commitlock/components/streakmenu.dart';
 import 'package:commitlock/models/streak_model.dart';
+import 'package:commitlock/providers/session_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:hive_ce_flutter/hive_flutter.dart';
 
@@ -9,11 +10,11 @@ class StreakProvider extends ChangeNotifier {
   int get streakCount => _streak?.streakCount ?? 0;
   String? get lastCompletedDate => _streak?.lastCompletedDate;
 
+  // ─── Load ────────────────────────────────────────────────────────────────
 
-  void loadStreak(String userId) {
+  void loadStreak(String userId, SessionProvider sessionProvider) {
     final box = Hive.box<StreakModel>('streaks');
 
-    // Find existing or create new for this user
     _streak = box.values.firstWhere(
       (s) => s.userId == userId,
       orElse: () {
@@ -23,7 +24,11 @@ class StreakProvider extends ChangeNotifier {
       },
     );
 
-    _advanceWindow(); // mark any missed days since last open
+    // Evaluate all past unresolved days every time app opens
+    _evaluatePastDays(sessionProvider);
+
+    _recalculateStreak();
+
     notifyListeners();
   }
 
@@ -32,28 +37,139 @@ class StreakProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  // Always computed fresh from dailyHistory — last 7 days including today
+  // ─── Core evaluation ─────────────────────────────────────────────────────
+
+  /// Called on load. Walks every day from the earliest session up to
+  /// (but NOT including) today, and resolves any that are still pending.
+  void _evaluatePastDays(SessionProvider sessionProvider) {
+    if (_streak == null) return;
+
+    final today = _dateOnly(DateTime.now());
+
+    // Collect all distinct past session dates (excluding today)
+    final pastDates = sessionProvider.sessions
+        .where((s) => s.createdAt != null)
+        .map((s) => _dateOnly(DateTime.fromMillisecondsSinceEpoch(s.createdAt!)))
+        .where((d) => d.isBefore(today))
+        .toSet()
+        .toList()
+      ..sort();
+
+    if (pastDates.isEmpty) return;
+
+    bool changed = false;
+
+    for (final date in pastDates) {
+      final key = _fmt(date);
+
+      // Skip already-resolved days
+      if (_streak!.dailyHistory.containsKey(key)) continue;
+
+      final sessionsOnDay = sessionProvider.sessions.where((s) {
+        if (s.createdAt == null) return false;
+        return _dateOnly(
+          DateTime.fromMillisecondsSinceEpoch(s.createdAt!),
+        ) == date;
+      }).toList();
+
+      // No sessions on this day → skip (don't mark as missed,
+      // user may not have planned anything)
+      if (sessionsOnDay.isEmpty) continue;
+
+      final allCompleted = sessionsOnDay.every((s) => s.isCompleted);
+      _streak!.dailyHistory[key] = allCompleted ? 'completed' : 'missed';
+      changed = true;
+    }
+
+    if (changed) {
+      _recalculateStreak();
+      _streak!.save();
+    }
+  }
+
+  /// Called when a session is broken or completed during the day.
+  /// Does NOT touch today's streak count — only updates history for past days.
+  /// Today's streak is resolved tomorrow when app opens.
+  void onSessionChanged(SessionProvider sessionProvider) {
+    _evaluatePastDays(sessionProvider);
+    notifyListeners();
+  }
+
+  // ─── Streak count recalculation ──────────────────────────────────────────
+
+  /// Recomputes streakCount from scratch by walking dailyHistory in order.
+  /// This is the only place streak math lives — no more +1/-1 scattered around.
+  void _recalculateStreak() {
+    if (_streak == null) return;
+
+    final completed = _streak!.dailyHistory.entries
+        .where((e) => e.value == 'completed')
+        .map((e) => DateTime.parse(e.key))
+        .toList()
+      ..sort();
+
+    if (completed.isEmpty) {
+      _streak!.streakCount = 0;
+      _streak!.lastCompletedDate = null;
+      return;
+    }
+
+    // Walk backwards from most recent completed day,
+    // count consecutive days with no gap
+    int streak = 1;
+    for (int i = completed.length - 1; i > 0; i--) {
+      final diff = completed[i].difference(completed[i - 1]).inDays;
+      if (diff == 1) {
+        streak++;
+      } else {
+        // Gap found — streak resets here
+        break;
+      }
+    }
+
+    _streak!.streakCount = streak;
+    _streak!.lastCompletedDate = _fmt(completed.last);
+  }
+
+  // ─── UI data ─────────────────────────────────────────────────────────────
+
   List<StreakStatus> get weekData {
     final today = DateTime.now();
+    // Mon = start of week
+    final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
+
     return List.generate(7, (i) {
-      final day = today.subtract(Duration(days: 6 - i));
+      final day = startOfWeek.add(Duration(days: i));
       final key = _fmt(day);
+
+      // Today and future days are always pending
+      if (!_dateOnly(day).isBefore(_dateOnly(today))) {
+        return StreakStatus.pending;
+      }
+
       final status = _streak?.dailyHistory[key];
       return switch (status) {
         'completed' => StreakStatus.completed,
         'missed' => StreakStatus.missed,
-        _ => StreakStatus.pending,
+        _ => StreakStatus.pending, // past day with no sessions → neutral
       };
     });
   }
 
-  // You can also expose monthly data later:
   Map<String, StreakStatus> getMonthData(int year, int month) {
     final result = <String, StreakStatus>{};
+    final today = _dateOnly(DateTime.now());
     final daysInMonth = DateUtils.getDaysInMonth(year, month);
 
     for (int d = 1; d <= daysInMonth; d++) {
-      final key = _fmt(DateTime(year, month, d));
+      final date = DateTime(year, month, d);
+      final key = _fmt(date);
+
+      if (!date.isBefore(today)) {
+        result[key] = StreakStatus.pending;
+        continue;
+      }
+
       final status = _streak?.dailyHistory[key];
       result[key] = switch (status) {
         'completed' => StreakStatus.completed,
@@ -64,63 +180,7 @@ class StreakProvider extends ChangeNotifier {
     return result;
   }
 
-  Future<void> markTodayCompleted() async {
-    if (_streak == null) return;
-
-    final today = _fmt(DateTime.now());
-    if (_streak!.lastCompletedDate == today) return;
-
-    final lastDate = _streak!.lastCompletedDate;
-
-    if (lastDate != null) {
-      final last = DateTime.parse(lastDate);
-      final todayDate = _dateOnly(DateTime.now());
-      final diff = todayDate.difference(_dateOnly(last)).inDays;
-
-      if (diff == 1) {
-        _streak!.streakCount++; // continued streak
-      } else if (diff > 1) {
-        _streak!.streakCount = 1; // gap found, reset
-      }
-    } else {
-      _streak!.streakCount = 1; // first ever
-    }
-
-    _streak!.dailyHistory[today] = 'completed';
-    _streak!.lastCompletedDate = today;
-    await _streak!.save();
-    notifyListeners();
-  }
-
-  // Marks past pending days as missed + reduces streak
-  void _advanceWindow() {
-    if (_streak == null) return;
-    final lastDate = _streak!.lastCompletedDate;
-    if (lastDate == null) return;
-
-    final last = _dateOnly(DateTime.parse(lastDate));
-    final today = _dateOnly(DateTime.now());
-    final missedDays = today.difference(last).inDays - 1;
-
-    if (missedDays <= 0) return;
-
-    bool changed = false;
-    for (int i = 1; i <= missedDays; i++) {
-      final missed = last.add(Duration(days: i));
-      if (missed.isBefore(today)) {
-        final key = _fmt(missed);
-        _streak!.dailyHistory[key] = 'missed';
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      _streak!.streakCount = (_streak!.streakCount - missedDays).clamp(0, 999);
-      _streak!.save();
-    }
-  }
-
-  // ─── Helpers ──────────────────────────────────────────────────────────────
+  // ─── Helpers ─────────────────────────────────────────────────────────────
 
   String _fmt(DateTime d) =>
       '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';

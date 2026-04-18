@@ -35,8 +35,9 @@ Future<void> _checkAuthStatus() async {
   }
 
   final userId = authProvider.currentUser!.id; 
-  context.read<SessionProvider>().loadSessions(userId);
-  context.read<StreakProvider>().loadStreak(userId);
+  final sessionProvider = context.read<SessionProvider>();
+  sessionProvider.loadSessions(userId);
+  context.read<StreakProvider>().loadStreak(userId ,sessionProvider);
 
   // Wait for the authentication status to load
   await Future.delayed(Duration(seconds: 2));

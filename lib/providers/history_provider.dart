@@ -16,7 +16,12 @@ class HistoryProvider with ChangeNotifier {
 
   // Load sessions from the Hive Box
   void loadSessions() {
-    allSessions = _sessionBox?.values.toList() ?? []; // Store all sessions
+    allSessions = (_sessionBox?.values
+        .where((s) => s.createdAt! <= DateTime.now().microsecondsSinceEpoch)
+        .toList()
+      ?? [])
+  ..sort((a, b) => b.createdAt!.compareTo(a.createdAt!));// Store all sessions
+  
     filteredsessions = List.from(allSessions); // Initially show all sessions
     notifyListeners();
   }

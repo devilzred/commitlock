@@ -13,6 +13,13 @@ class SessionProvider extends ChangeNotifier {
   List<SessionModel> get activeSessions =>
       _sessions.where((s) => s.isActive).toList();
 
+  // VoidCallback? _onSessionChanged;
+
+// void setOnSessionChanged(VoidCallback cb) {
+//   _onSessionChanged = cb;
+// }
+
+
   void loadSessions(String userId) {
 
     final box = Hive.box<SessionModel>('sessions');
@@ -74,29 +81,29 @@ class SessionProvider extends ChangeNotifier {
     _runningSessionId = sessionId;
 
     _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      final current = getById(sessionId);
+      // final current = getById(sessionId);
 
-      if (current == null) {
+      // if (current == null) {
+      //   stopTicker();
+      //   return;
+      // }
+
+      // if (!current.isActive || current.isCompleted) {
+      //   stopTicker();
+      //   return;
+      // }
+
+      session.remainingSeconds--;
+      session.actualDurationSeconds++;
+
+      if (session.remainingSeconds <= 0) {
+        session.remainingSeconds = 0;
+        session.isActive = false;
+        session.isCompleted = true;
         stopTicker();
-        return;
       }
 
-      if (!current.isActive || current.isCompleted) {
-        stopTicker();
-        return;
-      }
-
-      current.remainingSeconds--;
-      current.actualDurationSeconds++;
-
-      if (current.remainingSeconds <= 0) {
-        current.remainingSeconds = 0;
-        current.isActive = false;
-        current.isCompleted = true;
-        stopTicker();
-      }
-
-      current.save();
+      session.save();
       notifyListeners();
     });
   }
@@ -105,21 +112,6 @@ class SessionProvider extends ChangeNotifier {
     _ticker?.cancel();
     _ticker = null;
     _runningSessionId = null;
-  }
-
-  void completeSession(String id) {
-    final session = getById(id);
-    if (session == null) return;
-
-    session.isActive = false;
-    session.isCompleted = true;
-    session.save();
-
-    if (_runningSessionId == id) {
-      stopTicker();
-    }
-    
-    notifyListeners();
   }
 
   void breakSession(String id) {
@@ -135,6 +127,7 @@ class SessionProvider extends ChangeNotifier {
     }
 
     notifyListeners();
+    //  _onSessionChanged?.call();
   }
 
   bool _isSameDay(DateTime a, DateTime b) =>
@@ -158,8 +151,8 @@ int get todayCompletedMinutes =>
         .floor();
 
 /// True if at least one session was fully completed today
-bool get hasCompletedSessionToday =>
-    todaySessions.any((s) => s.isCompleted);
+// bool get hasCompletedSessionToday =>
+//     todaySessions.any((s) => s.isCompleted);
 
     void clearData(String userId) {
     final box = Hive.box<SessionModel>('sessions');

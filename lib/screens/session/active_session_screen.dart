@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:commitlock/components/custombottombar.dart';
 import 'package:commitlock/core/constants/app_theme.dart';
 import 'package:commitlock/providers/session_provider.dart';
-import 'package:commitlock/providers/streak_provider.dart';
 import 'package:commitlock/screens/session/session_result_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -16,11 +15,12 @@ class ActiveSessionScreen extends StatefulWidget {
   State<ActiveSessionScreen> createState() => _ActiveSessionScreenState();
 }
 
-class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
+class _ActiveSessionScreenState extends State<ActiveSessionScreen> with WidgetsBindingObserver  {
   // late String sessionId;
   final PageController _controller = PageController();
   int _currentPage = 0;
   Timer? _timer;
+  AppLifecycleState? _notification; 
 
   final List<String> texts = [
     "You can do this! Stay focused and avoid distractions",
@@ -29,14 +29,34 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
     "Almost there! Stay strong and finish what you started",
   ];
 
+@override
+void didChangeAppLifecycleState(AppLifecycleState state) {
+  final provider = Provider.of<SessionProvider>(context, listen: false);
+
+  if (state == AppLifecycleState.inactive) {
+    provider.stopTicker(); // App when pressing recent button
+  }
+
+  if (state == AppLifecycleState.paused) {
+    provider.stopTicker(); // App fully in background
+  }
+
+  if (state == AppLifecycleState.resumed) {
+    provider.startTicker(widget.sessionId);
+  }
+}
+
   @override
   void initState() {
     super.initState();
+      WidgetsBinding.instance.addObserver(this);
     final provider = Provider.of<SessionProvider>(context, listen: false);
 
     provider.startTicker(widget.sessionId); // Start ticker for the session.
     startTextScroll();
+
   }
+
 
   void startTextScroll() {
     _timer = Timer.periodic(const Duration(seconds: 2), (_) {
@@ -55,12 +75,7 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
   @override
   void dispose() {
     _timer?.cancel();
-    // final provider = Provider.of<SessionProvider>(context, listen: false);
-    // final active = provider.activeSessions;
-    // if (active.isNotEmpty) {
-    //   provider.breakSession(active.first.id);
-    // }
-
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
@@ -72,9 +87,9 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final streakProvider = Provider.of<StreakProvider>(context, listen: false);
     return Consumer<SessionProvider>(
       builder: (context, provider, child) {
+        print("app lifecycle state: $_notification");
         // Retrieve the session by its ID
         final session = provider.getById(widget.sessionId);
 
@@ -89,7 +104,6 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
 
         // Navigate to result page when session completes
         if (remaining <= 0 && session.isCompleted) {
-          streakProvider.markTodayCompleted();
           WidgetsBinding.instance.addPostFrameCallback((_) {
             Navigator.of(context).pushReplacement(
               MaterialPageRoute(
@@ -110,6 +124,7 @@ class _ActiveSessionScreenState extends State<ActiveSessionScreen> {
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
+                    const SizedBox(height:40),
                     // Display session habit category and restriction level
                     Text(session.habitCategory, style: Textfont.large),
                     const SizedBox(height: 10),
